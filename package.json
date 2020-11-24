@@ -1,0 +1,16 @@
+{
+  "name": "class-alert-bot",
+  "version": "1.0.0",
+  "description": "Sends you updates on class sizes",
+  "main": "bot.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node bot.js"
+  },
+  "author": "Jacob Eckroth",
+  "license": "ISC",
+  "dependencies": {
+    "discord.io": "github:woor/discord.io#gateway_v6",
+    "winston": "^3.3.3"
+  }
+}
