@@ -57,6 +57,15 @@ bot.on('message', function (user, userID, channelID, message, evt) {
             case 'getseats':
             case 'GetSeats':
             case 'Getseats':
+                console.log(userID)
+                console.log(typeof(userID))
+                bot.sendMessage({
+                    to:userID,
+                    message:"hi there"
+                },function(err,res){
+                    console.log(err)
+                    console.log("Response: ",res)
+                })
                 attemptToGetSeats(args,channelID,userID) 
                 
             break;
@@ -150,6 +159,7 @@ function printSeatsLeftInCRN(crn,channelID,userID){
                 to: channelID,
                 message: "<@"+userID+"> " + className + ", " + classFullDescription + ", CRN: "+crn + " has " +spacesLeft+ " seats left."
             });
+
         }
         await browser.close();
         
