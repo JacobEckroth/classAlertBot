@@ -50,7 +50,9 @@ var bot = new Discord.Client();
 bot.login(auth.token);
 
 bot.on('ready', function (evt) {
-    
+    bot.user.setPresence({ activity: { name: 'Type #help for help!', type:"WATCHING"}, status: 'idle' })
+     .then(console.log)
+    .catch(console.error);
     logger.info('Connected');
    
     MongoClient.connect(MONGO_URL, function (err, client) {
@@ -228,7 +230,7 @@ function updateUserOnClass(userID,crn){
             var currentClass = resultingClass[0];
             actualUser.send("Hi! Just wanted to update you that CRN:" + currentClass.CRN + ", " + currentClass.classCode + ", " + currentClass.className + " currently has " + currentClass.seatsLeft + "/" + currentClass.totalSeats + " seats left.")
             
-        })
+        }).catch(console.error);
 
 
 
