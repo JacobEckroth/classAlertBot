@@ -32,6 +32,11 @@ var usersDB                 //classes database
 var app = express();
 
 
+const SEATCHANGE = 6
+const percentageForPanic = .3;
+
+
+
 // Configure logger settings
 logger.remove(logger.transports.Console);
 logger.add(new logger.transports.Console, {
@@ -60,8 +65,7 @@ bot.on('ready', function (evt) {
         app.listen(PORT, function () {
             console.log("listening for mongo on port " + PORT); //don't start listening until connected.
         })
-    
-    
+        updateAllClassSeats();
     })
 });
 
@@ -98,6 +102,146 @@ bot.on('message', message=> {
          }
      }
 });
+
+
+
+
+function updateAllClassSeats(){
+    var classesCursor = classesDB.find()
+   classesCursor.toArray(function(err,classes){
+       for(var i = 0; i < classes.length; i++){
+            updateClass(classes[i].CRN)
+       }
+    });
+}
+
+function updateClass(crn){
+    (async () => {
+        const browser = await puppeteer.launch();
+        const page = await browser.newPage();
+        const url = "https://classes.oregonstate.edu/?keyword="+crn+"&srcdb=999999"
+        await page.goto(url);
+        await page.waitForSelector('.panel__body') //when this loads I know that the classes are loaded.
+
+        await page.waitForSelector(".panel__info-bar-text")
+        var amountOfClasses = await page.evaluate(()=> document.querySelector(".panel__info-bar-text").textContent); 
+        
+        var className = await page.evaluate(()=>document.querySelector(".result__code").textContent);
+        var classFullDescription = await page.evaluate(()=> document.querySelector(".result__title").textContent); 
+    
+        const element = await page.waitForSelector('.result');
+        
+        await element.click()
+        
+        await page.waitForSelector(".detail-ssbsect_seats_avail");
+        
+        const result = await page.evaluate(()=> document.querySelector('.detail-ssbsect_seats_avail').textContent); 
+        
+        let splitResult = result.split(':')
+    
+        let fixedResult = Number(splitResult[1].substr(1))
+        var spacesLeft = fixedResult;
+
+        var totalNumberOfSeats = await page.evaluate(()=>document.querySelector(".detail-max_enroll").textContent);
+        totalNumberOfSeats = totalNumberOfSeats.split(":")
+        totalNumberOfSeats = totalNumberOfSeats[1]
+        totalNumberOfSeats = Number(totalNumberOfSeats.substr(1))
+    
+
+    
+
+        var d = new Date();
+
+            
+        
+               
+        classesDB.updateOne({"CRN":crn},{
+            $set: {
+            "seatsLeft":spacesLeft,
+            "timeUpdated":d.getTime(),
+            "totalSeats":totalNumberOfSeats
+        }})
+
+        var currentClass = classesDB.find({ "CRN": crn });
+        currentClass.toArray(function(err,thisClass){
+            
+            var lastSeatsLeft = Number(thisClass[0].lastUpdatedAt);
+            
+            
+            if(lastSeatsLeft-spacesLeft >= SEATCHANGE || (spacesLeft != lastSeatsLeft && spacesLeft < percentageForPanic * thisClass[0].totalSeats)){
+                
+                classesDB.updateOne({"CRN":crn},{
+                    $set: {
+                    "seatsLeft":spacesLeft,
+                    "timeUpdated":d.getTime(),
+                    "totalSeats":totalNumberOfSeats,
+                    "lastUpdatedAt":spacesLeft
+                }})
+                updateUsersOnClass(crn)
+
+            }else{
+                console.log("don't need to message users about class: ",crn);
+                classesDB.updateOne({"CRN":crn},{
+                    $set: {
+                    "seatsLeft":spacesLeft,
+                    "timeUpdated":d.getTime(),
+                    "totalSeats":totalNumberOfSeats
+                }})
+            }
+            
+            
+            
+
+        })
+        
+
+        
+                  
+        await browser.close();
+        
+        
+    })();
+}
+
+
+
+function updateUsersOnClass(crn){
+    console.log("updating users on class: ",crn)
+    var userCursor = usersDB.find()
+    userCursor.toArray(function(err,users){
+        for(var i = 0; i < users.length; i++){
+            for(var j = 0; j < users[i].crns.length; j++){
+                if(users[i].crns[j] == crn){
+                    updateUserOnClass(users[i].userID,crn)
+                }
+            }
+        }
+
+
+    })
+}
+function updateUserOnClass(userID,crn){
+ 
+    bot.users.fetch(userID).then(function(actualUser){
+        var classCursor = classesDB.find({"CRN":crn});
+        classCursor.toArray(function(err,resultingClass){
+            var currentClass = resultingClass[0];
+            actualUser.send("Hi! Just wanted to update you that CRN:" + currentClass.CRN + ", " + currentClass.classCode + ", " + currentClass.className + " currently has " + currentClass.seatsLeft + "/" + currentClass.totalSeats + " seats left.")
+            
+        })
+
+
+
+
+
+
+
+    },function(err){
+        console.log(err);
+    })   
+
+
+}
 
 
 function listenForCLass(message,args){
@@ -143,8 +287,6 @@ function attemptToAddClassToDB(message,crn){
             
             const result = await page.evaluate(()=> document.querySelector('.detail-ssbsect_seats_avail').textContent); 
             
-            
-    
             let splitResult = result.split(':')
         
             let fixedResult = Number(splitResult[1].substr(1))
@@ -160,7 +302,7 @@ function attemptToAddClassToDB(message,crn){
 
             var d = new Date();
 
-            userCursor = usersDB.find({"userID":message})
+            userCursor = usersDB.find({"userID":message.author.id})
 
             userCursor.toArray(function(err,users){
                
@@ -199,28 +341,19 @@ function attemptToAddClassToDB(message,crn){
             })
 
             classCursor.toArray(function(err,classes){
-                if(classes.length!=0){
-                    classesDB.updateOne({"CRN":crn},
-                    {$set:{
-                        "timeUpdated":d.getTime(),
-                        "classCode":className,
-                        "className":classFullDescription,
-                        "seatsLeft":spacesLeft
-                    }})
-                }else{
-               
+                if(classes.length==0){
+                   
                     classesDB.insertOne({
                         "CRN":crn,
                         "timeUpdated":d.getTime(),
                         "classCode":className,
                         "className":classFullDescription,
-                        "seatsLeft":spacesLeft
+                        "seatsLeft":spacesLeft,
+                        "lastUpdatedAt":spacesLeft,
+                        "totalSeats":totalNumberOfSeats
                     })
                 }
-
             })
-            
-
         }
         await browser.close();
         
